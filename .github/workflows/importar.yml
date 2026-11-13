@@ -1,0 +1,22 @@
+name: Importar OpenHiggsfield
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/importar.yml'
+permissions:
+  contents: write
+jobs:
+  importar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Baixar codigo original
+        run: |
+          git clone --depth 1 https://github.com/wide-trace/open-higgsfield.git /tmp/original
+          find /tmp/original -mindepth 1 -maxdepth 1 ! -name .git -exec cp -a {} ./ \;
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Importar aplicativo OpenHiggsfield" || exit 0
+          git push
