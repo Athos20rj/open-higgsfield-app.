@@ -379,7 +379,14 @@ export function OpenHiggsfieldApp({ fontClassName = "" }: { fontClassName?: stri
 
     const runOne = async (slot: { skeletons: string[] }) => {
       try {
-        const queued = await submitGeneration(plane);
+        const result = await submitGeneration(plane);
+        if (!result.ok) {
+          if (!alive.current) return;
+          if (result.reconnect) setKeysOpen(true);
+          setError((prev) => prev ?? result.error);
+          return;
+        }
+        const queued = result.queued;
         setHistory((prev) => {
           const next = [...runningRows(queued.requestId, slot.skeletons.length, draft), ...prev];
           void saveHistory(next);
