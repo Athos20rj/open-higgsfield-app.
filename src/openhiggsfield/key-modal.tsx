@@ -36,7 +36,7 @@ export function KeyModal({
       await savePlatformCredentials({ api_key: apiKey });
       onSaved();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save the key");
+      setError(caught instanceof Error ? caught.message : "Não foi possível salvar a chave");
     } finally {
       setBusy(false);
     }
@@ -50,7 +50,7 @@ export function KeyModal({
       setApiKey("");
       onCleared();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not remove the key");
+      setError(caught instanceof Error ? caught.message : "Não foi possível remover a chave");
     } finally {
       setBusy(false);
     }
@@ -73,18 +73,18 @@ export function KeyModal({
             </div>
             <p className="ohf-keys-copy">
               {configured
-                ? "A key is saved in this browser. Enter a new id:secret pair to replace it."
-                : "Paste your platform key as id:secret. It stays in an httpOnly cookie and is sent as Authorization: Key id:secret."}
+                ? "Sua chave já está configurada neste navegador. Só substitua se quiser trocar de conta."
+                : "Cole a chave completa copiada do painel oficial da Higgsfield, sem alterar o formato. Ela fica protegida em um cookie do aplicativo."}
             </p>
           </div>
-          <button type="button" className="ohf-icon-btn" aria-label="Close" onClick={onClose}>
+          <button type="button" className="ohf-icon-btn" aria-label="Fechar" onClick={onClose}>
             <CloseIcon size={13} />
           </button>
         </div>
 
         <form className="ohf-keys-form" onSubmit={(event) => void onSubmit(event)}>
           <label className="ohf-field">
-            <div className="ohf-field-label">API key</div>
+            <div className="ohf-field-label">Chave da API da Higgsfield</div>
             <input
               className="ohf-input ohf-input--mono"
               name="api_key"
@@ -109,7 +109,7 @@ export function KeyModal({
               </button>
             )}
             <button type="submit" className="ohf-keys-save" disabled={busy || !apiKey.trim()}>
-              {busy ? "Saving…" : configured ? "Replace key" : "Save key"}
+              {busy ? "Salvando…" : configured ? "Trocar chave" : "Conectar chave"}
             </button>
           </div>
         </form>
