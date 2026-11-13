@@ -12,8 +12,8 @@ import {
   encodeCredentials,
   parseCredentialInput,
 } from "./credentials";
-import { createPlatformClient } from "./platform";
-import type { StatusResult } from "./platform";
+import { createPlatformClient, PlatformError } from "./platform";
+import type { QueuedGeneration, StatusResult } from "./platform";
 import { toPlatform } from "./to-platform";
 
 export async function savePlatformCredentials(data: unknown) {
@@ -31,14 +31,71 @@ export async function hasPlatformCredentials() {
   return (await readStoredCredentials()) !== null;
 }
 
-export async function submitGeneration(plane: GenerationPlane) {
-  const model = getModel(plane.model);
-  const parsed: GenerationPlane = {
-    ...plane,
-    settings: parseSettings(model, plane.settings),
-  };
-  const { path, body } = toPlatform(parsed);
-  return createPlatformClient(await readCredentials()).submit(path, body);
+/** Return expected API failures as data, not redacted React error 441. */
+type SubmitResult =
+  | { ok: true; queued: QueuedGeneration }
+  | { ok: false; error: string; reconnect: boolean };
+
+export async function submitGeneration(plane: GenerationPlane): Promise<SubmitResult> {
+  try {
+    const model = getModel(plane.model);
+    const parsed: GenerationPlane = {
+      ...plane,
+      settings: parseSettings(model, plane.settings),
+    };
+    const { path, body } = toPlatform(parsed);
+    const queued = await createPlatformClient(await readCredentials()).submit(path, body);
+    return { ok: true, queued };
+  } catch (caught) {
+    // Do not return keys, raw API payloads, request bodies or error stacks.
+    if (caught instanceof PlatformError) {
+      console.warn("[generation] API rejected request", { status: caught.status });
+    } else {
+      console.warn("[generation] Unable to submit request", {
+        type: caught instanceof Error ? caught.name : "unknown",
+      });
+    }
+    return {
+      ok: false,
+      error: explainSubmitError(caught),
+      reconnect: caught instanceof MissingCredentialsError ||
+        (caught instanceof PlatformError && (caught.status === 401 || caught.status === 403)),
+    };
+  }
+}
+
+function explainSubmitError(caught: unknown): string {
+  if (caught instanceof MissingCredentialsError) {
+    return "Sua chave de API não está conectada. Toque no ícone de chave para adicioná-la.";
+  }
+  if (caught instanceof PlatformError) {
+    if (caught.status === 401 || caught.status === 403) {
+      return "A Higgsfield recusou a chave de API (HTTP " + caught.status + "). Verifique a chave na plataforma oficial.";
+    }
+    if (caught.status === 402) {
+      return "A Higgsfield recusou a geração por saldo insuficiente (HTTP 402). Consulte o saldo da API antes de tentar novamente.";
+    }
+    if (caught.status === 429) {
+      return "A Higgsfield atingiu o limite de requisições (HTTP 429). Aguarde antes de tentar novamente.";
+    }
+    if (caught.status === 400 || caught.status === 422) {
+      const body = caught.body;
+      const detail = body && typeof body === "object" && !Array.isArray(body) &&
+        typeof (body as { detail?: unknown }).detail === "string"
+          ? (body as { detail: string }).detail.replace(/[\\r\\n]+/g, " ").slice(0, 220)
+          : "";
+      return "O modelo não aceitou essa configuração (HTTP " + caught.status + "). " +
+        (detail || "Confira modelo, duração e resolução.");
+    }
+    if (caught.status >= 500) {
+      return "O serviço Higgsfield está indisponível no momento (HTTP " + caught.status + ").";
+    }
+    return "A Higgsfield recusou a solicitação (HTTP " + caught.status + "). Consulte o painel da API.";
+  }
+  if (caught instanceof TypeError) {
+    return "Não foi possível conectar ao servidor da Higgsfield. Verifique os registros na Vercel.";
+  }
+  return "Não foi possível enviar a geração. Consulte os registros do aplicativo na Vercel.";
 }
 
 /** Every request in flight, answered in one round trip. Next dispatches server
@@ -47,13 +104,18 @@ export async function submitGeneration(plane: GenerationPlane) {
     genuinely parallel. */
 export async function getGenerationStatuses(data: unknown): Promise<StatusResult[]> {
   const requestIds = parseRequestIds(data);
-  const client = createPlatformClient(await readCredentials());
+  let client: ReturnType<typeof createPlatformClient>;
+  try {
+    client = createPlatformClient(await readCredentials());
+  } catch (caught) {
+    return requestIds.map((requestId) => ({ requestId, error: explainSubmitError(caught) }));
+  }
   return Promise.all(
     requestIds.map(async (requestId): Promise<StatusResult> => {
       try {
         return { requestId, status: await client.status(requestId) };
       } catch (caught) {
-        return { requestId, error: caught instanceof Error ? caught.message : String(caught) };
+        return { requestId, error: explainSubmitError(caught) };
       }
     }),
   );
